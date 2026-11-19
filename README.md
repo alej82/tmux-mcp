@@ -41,7 +41,8 @@ host login shell is never used: the host `.profile` would launch byobu.
 `exec` subscribes to a unique `tmux wait-for` channel **before** injecting a
 marker-wrapped command, then returns the exit status and the text between the
 markers. On timeout it returns the partial output and leaves the command
-running; interrupt it with `send_keys`.
+running; interrupt it with `send_keys` and `force: true` (the foreground is no
+longer a shell).
 
 ## Requirements
 
