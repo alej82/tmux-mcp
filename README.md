@@ -4,63 +4,25 @@ A local MCP stdio server that lets an AI agent list and drive the user's
 tmux/byobu sessions. It is built for the case where the agent runs inside a
 distrobox container and tmux runs on the host.
 
-> Status: v0.1.0. Design and specs live in
-> `openspec/changes/add-tmux-mcp-server/`.
-
 ## Why another tmux MCP
 
 The server has to cross a namespace boundary: the MCP client (opencode) runs
-inside a container, tmux 3.7c runs on the host, and the host binary cannot run
+inside a container, tmux runs on the host, and the host binary cannot run
 inside the container. It also has to be safe by default: an agent must not
 type into the pane that hosts its own container, or into another agent.
 
-`nickgnd/tmux-mcp` covers the basic surface but assumes the server shares the
-host with tmux, uses a non-blocking execute + poll model, and has no
-ownership or self-pane guards.
+[`nickgnd/tmux-mcp`](https://github.com/nickgnd/tmux-mcp) covers the basic
+surface but assumes the server shares the host with tmux, uses a non-blocking
+execute + poll model, and has no ownership or self-pane guards.
 
-## How it works
-
-```
-┌──────────────────── container ────────────────────┐
-│  opencode ──stdio──► tmux-mcp (node)              │
-│                          │ per tool call          │
-│                          ▼                        │
-│                    host-spawn                     │
-└──────────────────────────┼────────────────────────┘
-                           ▼
-┌──────────────────── host (Manjaro) ───────────────┐
-│  tmux 3.7c · socket /tmp/tmux-1000/default        │
-│  byobu 6.14 (tmux backend)                        │
-└───────────────────────────────────────────────────┘
-```
-
-Every tmux interaction is one executor call with a sanitized environment
-(`env -i`, explicit `HOME`/`PATH`/`LANG`) and an explicit `-S <socket>`. A
-host login shell is never used: the host `.profile` would launch byobu.
-
-`exec` subscribes to a unique `tmux wait-for` channel **before** injecting a
-marker-wrapped command, then returns the exit status and the text between the
-markers. On timeout it returns the partial output and leaves the command
-running; interrupt it with `send_keys` and `force: true` (the foreground is no
-longer a shell).
-
-## Requirements
-
-- Node.js 20+
-- tmux 3.x on the side that owns the sessions
-- Inside a container: `host-spawn` available
-- The container must see the tmux socket (this setup shares `/tmp`)
-
-## Build
+## Quick start
 
 ```sh
 npm install
 npm run build
 ```
 
-## Configure opencode
-
-Add a local MCP entry. The path is the host-mounted project directory:
+Add the MCP entry to opencode:
 
 ```jsonc
 {
@@ -74,32 +36,100 @@ Add a local MCP entry. The path is the host-mounted project directory:
 }
 ```
 
-The server writes diagnostics to stderr and speaks MCP on stdout. A typical
-first run logs:
+Then call `list_sessions` first (read-only) and `exec` without a session name
+to use the tool-owned `mcp` session:
 
 ```
-[tmux-mcp] ready (mode=host executor=host-spawn tmux=/usr/bin/tmux socket=/tmp/tmux-1000/default home=/home/areche)
-[tmux-mcp] tmux 3.7c reachable
+exec { "command": "uname -s" }
 ```
+
+## How it works
+
+```
+┌──────────────────── container ────────────────────┐
+│  opencode ──stdio──► tmux-mcp (node)              │
+│                          │ per tool call          │
+│                          ▼                        │
+│                    host-spawn                     │
+└──────────────────────────┼────────────────────────┘
+                           ▼
+┌──────────────────── host ─────────────────────────┐
+│  tmux 3.x · socket /tmp/tmux-<uid>/default        │
+│  byobu (tmux backend)                             │
+└───────────────────────────────────────────────────┘
+```
+
+Every tmux interaction is one executor call with a sanitized environment
+(`env -i`, explicit `HOME`/`PATH`/`LANG`) and an explicit `-S <socket>`. A
+host login shell is never used: on this machine the host `.profile` launches
+byobu.
+
+`exec` subscribes to a unique `tmux wait-for` channel **before** injecting a
+marker-wrapped command, then returns the exit status and the text between the
+markers. On timeout it returns the partial output and leaves the command
+running; interrupt it with `send_keys` and `force: true` (the foreground is no
+longer a shell).
+
+The wrapper is sent with `set-buffer` + `paste-buffer -p`, so multi-line
+commands are pasted as one block and submitted once. `stdin` is not used
+because `host-spawn` does not forward EOF to host commands.
+
+## Requirements
+
+- Node.js 20+
+- tmux 3.x on the side that owns the sessions
+- Inside a container: `host-spawn` available
+- The container must see the tmux socket (this setup shares `/tmp`)
 
 ## Tools
 
-| Tool | What it does |
-| --- | --- |
-| `list_sessions` | Sessions with owner, attached count, windows, cwd, foreground command, activity, one-line preview, and an `attach_cmd` hint. Read-only. |
-| `new_session` | Create a detached session owned by the tool (`name`, `cwd`, `shell`, `command`). |
-| `kill_session` | Kill an owned session; foreign sessions require `force`. |
-| `exec` | Type a command, wait for completion, return exit code and cleaned output. `timeout_ms` defaults to 30 s. |
-| `send_keys` | Named keys (`C-c`, `Escape`, ...) or literal text without shell interpretation. Enter is optional. |
-| `capture` | Return the last N lines of a pane, optionally with ANSI escapes. Read-only. |
+| Tool | Arguments | What it does |
+| --- | --- | --- |
+| `list_sessions` | — | Sessions with owner, attached count, windows, cwd, foreground command, activity, one-line preview, and an `attach_cmd` hint. Read-only. |
+| `new_session` | `name`, `cwd?`, `shell?`, `command?` | Create a detached session owned by the tool. Idempotent for owned names; refuses foreign collisions. |
+| `kill_session` | `session`, `force?` | Kill an owned session; foreign sessions require `force`. |
+| `exec` | `command`, `session?`, `timeout_ms?`, `force?` | Type a command, wait for completion, return exit code and cleaned output. |
+| `send_keys` | `session?`, `keys[]` or `text`, `enter?`, `force?` | Named keys (`C-c`, `Escape`, ...) or literal text without shell interpretation. |
+| `capture` | `session?`, `lines?`, `ansi?` | Return the last N lines of a pane. Read-only. |
 
 Every write defaults to the owned session `mcp`; name another session
-explicitly.
+explicitly. `force: true` is required for foreign sessions, sessions with an
+attached client, and panes whose foreground is not a supported shell.
+
+### Example: `exec`
+
+```
+exec { "command": "uname -s; printf smoke-ok", "session": "mcp" }
+```
+
+```
+{
+  "session": "mcp",
+  "exit_code": 0,
+  "timed_out": false,
+  "truncated": false,
+  "duration_ms": 206,
+  "recreated": false
+}
+--- output ---
+Linux
+smoke-ok
+```
+
+### Owned session lifecycle
+
+- Created on first `exec`/`send_keys` with no session name, or via
+  `new_session`.
+- Shell: `bash --noprofile --norc`, cwd `$HOME`, detached.
+- Marked with the `@tmux_mcp_owned` session option; ownership survives server
+  restarts.
+- If it disappears, the next write recreates it and reports `recreated: true`.
+- `kill_session` removes it.
 
 ## Safety model
 
-- **Owned by default.** The tool creates `mcp` with `bash --noprofile --norc`
-  and marks it with the `@tmux_mcp_owned` session option.
+- **Owned by default.** The tool creates `mcp` and marks it with
+  `@tmux_mcp_owned`.
 - **Absolute guards.** The pane named by `TMUX_PANE` (the pane hosting this
   container) and any pane whose foreground is an agent (`opencode`, `claude`,
   `codex`, ...) are never written to, not even with `force`.
@@ -142,6 +172,24 @@ screen may contain secrets.
 | `TMUX_MCP_MAX_LINES` | `1000` | Output line cap |
 | `TMUX_MCP_MAX_BYTES` | `65536` | Output byte cap |
 
+## Project layout
+
+```
+src/index.ts       stdio entry point and startup diagnostics
+src/server.ts      MCP tool registration and zod schemas
+src/config.ts      environment parsing, detection, defaults
+src/transport.ts   host/direct command construction
+src/executor.ts    child processes, output limit, timeout
+src/tmux.ts        session operations and ownership
+src/guards.ts      self-pane, agent-pane, force policy
+src/exec.ts        one-shot execution engine
+src/output.ts      markers, ANSI, caps, list parsing
+src/audit.ts       JSON audit trail
+test/              unit tests and opt-in integration tests
+openspec/          proposal, specs, design and tasks for this change
+AGENTS.md          agent guidance, invariants and known tmux quirks
+```
+
 ## Development
 
 ```sh
@@ -157,9 +205,26 @@ Unit tests mock the executor. Integration tests start an isolated
 npm run test:integration
 ```
 
-The integration suite covers create/list/exec/timeout/send_keys/capture/kill,
-the fish and bash status variables, ownership persistence, and the audit file
+They cover create/list/exec/timeout/send_keys/capture/kill, the fish and bash
+status variables, ownership persistence, guard refusals, and the audit file
 permissions.
+
+## Troubleshooting
+
+- **`error [unreachable]`** — the socket or executor is wrong. Try
+  `host-spawn /usr/bin/tmux -S <socket> list-sessions`. The error includes the
+  executor, binary, socket, and home it used.
+- **`error [not_owned]`** — the session is not owned by the tool. Use the
+  default `mcp` session, create one with `new_session`, or pass `force: true`
+  if you really mean it.
+- **`protected_pane` / `protected_agent`** — absolute refusals; do not try to
+  force them.
+- **`timed_out: true`** — the command is still running. Use
+  `send_keys { "keys": ["C-c"], "force": true }`, then retry.
+- **`sessions should be nested with care`** — a tmux command inherited
+  `TMUX`. The server sanitizes its environment; this only appears when you
+  start a test server by hand.
+- **No preview** — `TMUX_MCP_PREVIEW=0` is set, or the pane is empty.
 
 ## Prior art and license
 
