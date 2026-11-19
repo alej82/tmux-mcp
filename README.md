@@ -186,7 +186,7 @@ src/exec.ts        one-shot execution engine
 src/output.ts      markers, ANSI, caps, list parsing
 src/audit.ts       JSON audit trail
 test/              unit tests and opt-in integration tests
-openspec/          proposal, specs, design and tasks for this change
+openspec/          main specs, archived change, project config
 AGENTS.md          agent guidance, invariants and known tmux quirks
 ```
 

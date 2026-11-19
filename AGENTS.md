@@ -10,10 +10,10 @@ A local MCP stdio server (`@areche/tmux-mcp`) that lists and drives tmux/byobu
 sessions. It is designed for the case where the MCP client runs inside a
 container and tmux runs on the host.
 
-The behavior contract lives in
-`openspec/changes/add-tmux-mcp-server/specs/`. The implementation decisions and
-their rationale live in `design.md`. When behavior changes, update the spec
-delta as part of the change, not after the fact.
+The behavior contract lives in `openspec/specs/`. The proposal, design, and
+task history are archived under
+`openspec/changes/archive/2026-11-19-add-tmux-mcp-server/`. When behavior
+changes, update the spec delta as part of the change, not after the fact.
 
 ## Commands
 
@@ -22,7 +22,7 @@ npm run typecheck
 npm test                    # unit tests; integration suite is skipped
 npm run test:integration    # requires host-spawn + tmux on the host
 npm run build               # emits dist/ (gitignored)
-openspec validate add-tmux-mcp-server --type change --strict
+openspec validate --all --strict
 ```
 
 Integration tests start an isolated `tmux -L tmux-mcp-itest` server. They must
@@ -124,12 +124,13 @@ Data flow: MCP handler → `SessionEngine` → guards/mutex → `TmuxClient` →
 
 ## OpenSpec workflow
 
-- The active change is `openspec/changes/add-tmux-mcp-server/`.
+- There is no active change. New changes go under `openspec/changes/`; the last
+  one is archived at `openspec/changes/archive/2026-11-19-add-tmux-mcp-server/`.
 - Behavior belongs in `specs/<capability>/spec.md` (SHALL/MUST, scenarios with
   four `#` headings). Implementation details belong in `design.md`.
-- When adding or changing behavior, update the spec delta and the tasks list
-  together, then run `openspec validate add-tmux-mcp-server --type change
-  --strict`.
+- When adding or changing behavior, create a new change under
+  `openspec/changes/`, update the spec delta and the tasks list together, then
+  run `openspec validate --all --strict`.
 - Keep tasks small and check them off as you finish; do not mark a task done
   because the code compiles.
 
