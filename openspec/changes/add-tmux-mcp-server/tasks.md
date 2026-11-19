@@ -72,7 +72,7 @@
 - [x] 8.2 Document installation, environment variables, security model, and the container/host topology in the README
 - [x] 8.3 Document the opencode MCP configuration entry and the read-only first-run check
 - [x] 8.4 Add the prior-art attribution section and third-party notice for reused MIT ideas
-- [ ] 8.5 Create the GitHub repository `tmux-mcp` and push `main` (manual step; requires `gh` authentication)
+- [x] 8.5 Create the GitHub repository `tmux-mcp` and push `main` (manual step; requires `gh` authentication)
 
 ## 9. Verification
 
