@@ -1,0 +1,51 @@
+schema: spec-driven
+
+context: |
+  Project: tmux-mcp — a local MCP stdio server that lets an AI agent list and
+  drive the user's tmux/byobu sessions.
+
+  Stack: TypeScript, Node 20, @modelcontextprotocol/sdk, zod, Vitest.
+  Package: @areche/tmux-mcp (the npm name "tmux-mcp" is taken); MIT.
+  Repo name: tmux-mcp. The local checkout directory name is irrelevant.
+
+  Runtime topology (this is the hard constraint):
+  - The MCP client (opencode) runs inside a distrobox container.
+  - tmux 3.7c + byobu 6.14 run on the host (Manjaro); the tmux socket is
+    /tmp/tmux-1000/default and is reachable from the container because /tmp
+    is shared.
+  - Host commands are invoked per call with `host-spawn`; the host binaries
+    cannot run inside the container (missing libutempter/libevent), and the
+    container has no tmux client.
+  - Never invoke a host login shell (`bash -lc`): the host .profile runs
+    byobu-launch and creates a new byobu session. Use absolute binaries and a
+    sanitized environment.
+  - The container cannot host the MCP server via host-spawn: host-spawn does
+    not propagate stdin EOF. The server lives in the container and calls
+    host-spawn per tool call.
+
+  Safety invariants:
+  - Default target is the tool-owned session `mcp`; foreign sessions require
+    explicit `force: true`.
+  - Never write to the pane named by $TMUX_PANE (the pane hosting this
+    container) nor to panes whose foreground command is an agent
+    (opencode, claude, codex, ...).
+  - Commands are executed in a real shell and can be destructive; the design
+    must fail closed and keep an audit trail.
+
+  Prior art: nickgnd/tmux-mcp (MIT, 307 stars) covers list/capture/execute
+  but assumes the server runs on the same host as tmux, uses a non-blocking
+  execute + poll model, and has no ownership or self-pane guards.
+
+rules:
+  proposal:
+    - Always include a "Non-goals" section.
+    - Reference the prior art and state what this change does differently.
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
